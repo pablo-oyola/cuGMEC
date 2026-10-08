@@ -19,7 +19,6 @@
 
 #include "cuGMEC_model.h"
 #include "cuGMEC_const.h"
-#include "cuGMEC_param.h"
 #include "cuGMEC_setup.h"
 
 #include "kernels/utils.cuh"

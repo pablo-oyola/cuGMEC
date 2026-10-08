@@ -94,12 +94,15 @@ The current `Makefile` uses the following variables:
 | `ARCH` | `sm_80` | Target GPU architecture |
 | `NCCL_HOME` | Empty | NCCL installation directory |
 | `CUDSS_HOME` | Empty | cuDSS installation directory |
+| `CASE` | Empty | Case directory containing its own `cuGMEC_param.h`. When set, the executable is written to that directory |
 
 Before building, make sure the environment variables for CUDA, NCCL, cuDSS, and Intel MPI have been configured and applied. If `NCCL_HOME` and `CUDSS_HOME` have already been set in `~/.bashrc` as shown above, and `source ~/.bashrc` has been run, no paths need to be specified manually here. Run `make` directly.
 
 <pre style="background:#f6f8fa;border-radius:4px;padding:12px;overflow:auto;color:#000;"><code><span style="color:#0000ff;">make</span></code></pre>
 
 After a successful build, the `cuGMEC` executable will be generated in the project root directory.
+
+To keep several cases side by side, give each one a directory with its own `cuGMEC_param.h` and build with `make CASE=<directory>`. The executable is written to `<directory>/cuGMEC`. The text of the parameter file is compiled in, and every run writes it to `outputDir/final/cuGMEC_param.h`. `cugmec case` in [scripts/python](../../scripts/python/README.md) creates such directories.
 
 Common GPU architecture examples:
 

@@ -18,7 +18,12 @@
  */
 
 #pragma once
-#include "cuGMEC_param.h"
+
+// The Makefile points this at the case's parameter file (make CASE=dir).
+#ifndef CUGMEC_PARAM_H
+#define CUGMEC_PARAM_H "cuGMEC_param.h"
+#endif
+#include CUGMEC_PARAM_H
 
 /*-------------------------------I/O Paths------------------------------*/
 

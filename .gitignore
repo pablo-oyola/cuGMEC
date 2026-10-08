@@ -1,0 +1,7 @@
+# Build products
+/cuGMEC
+/build/
+
+# Python
+__pycache__/
+*.egg-info/
