@@ -532,6 +532,8 @@ A typical cuGMEC workflow is:
 5. Run the simulation locally or submit it to a computing cluster.
 6. Visualize the simulation output with [scripts/postprocess/visualizeMHD.m](scripts/postprocess/visualizeMHD.m) and [scripts/postprocess/visualizePIC.m](scripts/postprocess/visualizePIC.m).
 
+For tokamak cases, steps 2, 3 and 6 can also be done in Python with HDF5 files, one case directory per run (`make CASE=<directory>`). See [scripts/python](scripts/python/README.md).
+
 ---
 
 ## 🚀 Future Work

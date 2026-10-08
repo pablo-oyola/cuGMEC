@@ -1,19 +1,13 @@
 """
-Python replacement for the MATLAB stage of the cuGMEC 2D (tokamak) preprocessing.
+Equilibrium blocks read by cuGMEC, and the Python replacement for the MATLAB stage of the 2D (tokamak) preprocessing.
 
     standard2D.mat (scripts/equilibrium/output2D_0170.ipynb) + NTP.mat (profiles)
-        -> MHDEquilibrium .bin   (what writeProfile1D, DESC2PEST2SFA2D and writeEquilibrium2D produce)
-        -> normalization values  (what writeNormalization2D produces)
+        -> 159 field blocks  (what writeProfile1D, DESC2PEST2SFA2D and writeEquilibrium2D produce)
+        -> normalization     (what writeNormalization2D produces)
 
-The binary is a headerless little-endian float64 stream. Its block order and shapes mirror
+The binary cuGMEC reads is a headerless little-endian float64 stream. Its block order and shapes mirror
 loadMHDEquilibrium() in src/cuGMEC_model.h. Every block is stored in C order (x, y, z).
-
-Usage:
-    python cugmec_eq.py standard2D.mat NTP.mat MHDEquilibrium_128_32.bin --ion-mass 1.0 --types 1 1 3
-    python cugmec_eq.py ... --param-in ../../../src/cuGMEC_param.h --param-out case/cuGMEC_param.h
 """
-import re
-
 import numpy as np
 from scipy.interpolate import make_interp_spline
 
@@ -274,66 +268,48 @@ def build_2d(S, P, ion_mass, ion_type=MAXWELL, alpha_type=SLOWING, beam_type=SLO
     return out, norm
 
 
-# ---------------------------------------------------------------- cuGMEC_param.h
+# ---------------------------------------------------------------- block descriptions (written into HDF5 attributes)
 
-PARAM_TYPES = {"B0": "double", "L0": "double", "VA0": "double", "RHO0": "double", "RHO1": "double", "PSITMAX": "double",
-               "gridNx": "int", "gridNy": "int", "NFP": "int", "IonBeta": "picReal", "AlphaBeta": "picReal", "BeamBeta": "picReal"}
-
-
-def param_block(norm):
-    """The cuGMEC_param.h declarations that depend on the equilibrium."""
-    return "\n".join(f"const {PARAM_TYPES[name]} {name} = {_fmt(v)};" for name, v in norm.items())
-
-
-def patch_param_h(text, norm):
-    """Return param.h text with the equilibrium-dependent constants replaced; every one must be present."""
-    for name, value in norm.items():
-        pattern = re.compile(rf"^(\s*const\s+[\w:]+\s+{name}\s*=\s*)[^;]*;", re.M)
-        text, n = pattern.subn(lambda mt: mt.group(1) + _fmt(value) + ";", text)
-        if n != 1:
-            raise ValueError(f"expected one definition of {name} in cuGMEC_param.h, found {n}")
-    return text
-
-
-def _fmt(v):
-    return str(v) if isinstance(v, (int, np.integer)) else repr(float(v))  # shortest string that round-trips
-
-
-def main():
-    import argparse
-    from scipy.io import loadmat
-
-    ap = argparse.ArgumentParser(description="standard2D.mat + NTP.mat -> cuGMEC MHDEquilibrium .bin")
-    ap.add_argument("standard2D")
-    ap.add_argument("ntp")
-    ap.add_argument("out_bin")
-    ap.add_argument("--ion-mass", type=float, required=True, help="thermal ion mass / m_p; must equal IonMass in cuGMEC_param.h")
-    ap.add_argument("--types", type=int, nargs=3, default=[MAXWELL, SLOWING, SLOWING], metavar=("ION", "ALPHA", "BEAM"),
-                    help="1 Maxwellian, 2 slowing-down, 3 absent (codes of generateInput2D.m)")
-    ap.add_argument("--fit", action="append", default=[], metavar="NAME=WINDOW,ORDER",
-                    help="profile fit, e.g. --fit nb=22,6 (names: ne Te ni Ti Pi na Ta Pa nb Tb Pb)")
-    ap.add_argument("--param-in", help="cuGMEC_param.h to use as a template")
-    ap.add_argument("--param-out", help="write the template with the equilibrium constants filled in")
-    args = ap.parse_args()
-
-    fit = {}
-    for item in args.fit:
-        name, spec = item.split("=")
-        window, order = spec.split(",")
-        fit[name] = (int(window), int(order))
-
-    load = lambda path: {k: v for k, v in loadmat(path).items() if not k.startswith("__")}
-    blocks, norm = build_2d(load(args.standard2D), load(args.ntp), args.ion_mass, *args.types, fit=fit)
-    write_bin(args.out_bin, blocks, norm["gridNx"], norm["gridNy"])
-    if args.param_out:
-        if not args.param_in:
-            ap.error("--param-out needs --param-in")
-        with open(args.param_in) as f:
-            text = patch_param_h(f.read(), norm)
-        with open(args.param_out, "w") as f:
-            f.write(text)
-    print(param_block(norm))
+_DERIV = {"": "", "_px": "d/dx of ", "_py": "d/dy of ", "_pz": "d/dz of ", "_px2": "d2/dx2 of ", "_pxy": "d2/dxdy of ",
+          "_pxz": "d2/dxdz of ", "_py2": "d2/dy2 of ", "_pyz": "d2/dydz of ", "_pz2": "d2/dz2 of "}
+_FIELDS = {
+    "qtheta": ("q(rho) * theta_PEST on the ghost-extended y grid", "1"),
+    "q": ("safety factor", "1"),
+    "psip": ("poloidal flux / 2 pi [Wb/rad]", "B0 L0^2"),
+    "Ni": ("thermal ion density [m^-3]", "L0^-3"),
+    "Ne": ("electron density [m^-3]", "L0^-3"),
+    "Na": ("alpha-slot density [m^-3]", "L0^-3"),
+    "Nb": ("beam-slot density [m^-3]", "L0^-3"),
+    "Ti": ("thermal ion temperature [keV] if Maxwellian, critical speed [m/s] if slowing-down", "1 (keV) or VA0"),
+    "Ta": ("alpha-slot temperature [keV] if Maxwellian, critical speed [m/s] if slowing-down", "1 (keV) or VA0"),
+    "Tb": ("beam-slot temperature [keV] if Maxwellian, critical speed [m/s] if slowing-down", "1 (keV) or VA0"),
+    "Te": ("electron temperature [J]", "B0^2/(2 mu0) L0^3"),
+    "Pi": ("thermal ion pressure [Pa]", "B0^2/(2 mu0)"),
+    "Pe": ("electron pressure [Pa]", "B0^2/(2 mu0)"),
+    "J": ("Jacobian of (x, y, z) [m^3]", "L0^3"),
+    "Bny": ("contravariant B^y = 2 psi_t,edge Drho rho / (q J)", "B0/L0"),
+    "JpB": ("J_parallel / |B|", "1/(mu0 L0)"),
+    "Rho": ("thermal ion Larmor radius sqrt(m_i p_i / n_i) / (e B) [m]", "L0"),
+    "Va": ("local Alfven speed B / sqrt(mu0 m_i n_i) [m/s]", "VA0"),
+    "R": ("major radius [m]", "L0"),
+    "Z": ("vertical position [m]", "L0"),
+    "B": ("|B| [T]", "B0"),
+}
 
 
-if __name__ == "__main__":
-    main()
+def describe_block(name):
+    """(description, normalization) of one block, e.g. 'SFAconxy_px' or 'Te'."""
+    for suffix in sorted(_DERIV, key=len, reverse=True):
+        if suffix and name.endswith(suffix):
+            base, prefix = name[: -len(suffix)], _DERIV[suffix]
+            break
+    else:
+        base, prefix = name, ""
+    for tag, label, cov in (("SFAcon", "field-aligned (SFA) contravariant metric g^", False),
+                            ("SFAcov", "field-aligned (SFA) covariant metric g_", True),
+                            ("gcon", "shifted-metric (SFT) contravariant metric g^", False),
+                            ("gcov", "shifted-metric (SFT) covariant metric g_", True)):
+        if base.startswith(tag) and base[len(tag):] in IJ:
+            return prefix + label + base[len(tag):], "L0^2" if cov else "L0^-2"
+    text, norm = _FIELDS[base]
+    return prefix + text, norm
