@@ -2,12 +2,24 @@
 #
 #   make                     builds ./cuGMEC from src/cuGMEC_param.h
 #   make CASE=runs/itpa      builds runs/itpa/cuGMEC from runs/itpa/cuGMEC_param.h
+#
+# MPI comes from the compiler's default paths (-lmpi) or from MPI_HOME. On a Cray system (Perlmutter, with the
+# cudatoolkit, cray-mpich and nccl modules) it defaults to CRAY_MPICH_DIR with -lmpich, and the CUDA math libraries
+# (cuFFT, cuSPARSE) are taken from the cudatoolkit module.
 
 NVCC       ?= nvcc
 ARCH       ?= sm_80
 CUDSS_HOME ?=
 NCCL_HOME  ?=
 CASE       ?=
+
+ifdef CRAY_MPICH_DIR
+MPI_HOME   ?= $(CRAY_MPICH_DIR)
+MPI_LIBS   ?= -lmpich
+endif
+MPI_HOME   ?=
+MPI_LIBS   ?= -lmpi
+comma      := ,
 
 SRC   := src/cuGMEC_main.cu
 PARAM := $(abspath $(if $(CASE),$(CASE)/cuGMEC_param.h,src/cuGMEC_param.h))
@@ -18,12 +30,12 @@ BIN   := $(if $(CASE),$(CASE)/cuGMEC,cuGMEC)
 SNAPSHOT := $(BUILD)/cuGMEC_param_snapshot.inc
 
 INC_FLAGS := -Isrc -I$(BUILD) \
-             $(if $(CUDSS_HOME),-I$(CUDSS_HOME)/include) \
-             $(if $(NCCL_HOME),-I$(NCCL_HOME)/include)
-LIB_FLAGS := $(if $(CUDSS_HOME),-L$(CUDSS_HOME)/lib) \
-             $(if $(NCCL_HOME),-L$(NCCL_HOME)/lib)
+             $(foreach d,$(CUDSS_HOME) $(NCCL_HOME) $(MPI_HOME),-I$(d)/include) \
+             $(filter -I%,$(CRAY_CUDATOOLKIT_INCLUDE_OPTS))
+LIB_FLAGS := $(foreach d,$(CUDSS_HOME) $(NCCL_HOME) $(MPI_HOME),-L$(d)/lib -Xlinker -rpath$(comma)$(d)/lib) \
+             $(filter -L%,$(CRAY_CUDATOOLKIT_POST_LINK_OPTS))
 
-LIBS      := -lmpi -lnccl -lcufft -lcudss -lcusparse
+LIBS      := $(MPI_LIBS) -lnccl -lcufft -lcudss -lcusparse
 NVCCFLAGS := -arch=$(ARCH) -std=c++20 --expt-relaxed-constexpr -Xcompiler -fopenmp -DCUGMEC_PARAM_H='"$(PARAM)"'
 
 DEPS := $(wildcard src/*.h) $(wildcard src/kernels/*.cuh) $(PARAM)

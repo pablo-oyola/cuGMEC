@@ -534,6 +534,8 @@ A typical cuGMEC workflow is:
 
 For tokamak cases, steps 2, 3 and 6 can also be done in Python with HDF5 files, one case directory per run (`make CASE=<directory>`). Starting from a gEQDSK file and kinetic profiles, steps 1–3 are a single command (`cugmec from-geqdsk`). See [scripts/python](scripts/python/README.md).
 
+On a Cray system the Makefile takes MPI (`-lmpich`) and the CUDA math libraries from the cray-mpich and cudatoolkit modules. On Perlmutter, the `cugmec` module in `/global/common/software/m5040/modules` sets up the whole environment; see its `WORKFLOW.md`.
+
 ---
 
 ## 🚀 Future Work
