@@ -9,6 +9,9 @@ description = "Prepare cuGMEC inputs and convert its outputs, with HDF5 as the u
 requires-python = ">=3.9"
 dependencies = ["numpy", "scipy", "h5py"]
 
+[project.optional-dependencies]
+desc = ["desc-opt~=0.17.0"]  # from-desc and from-geqdsk --method desc; the default method needs pyCOCOS
+
 [project.scripts]
 cugmec = "cugmec.cli:main"
 

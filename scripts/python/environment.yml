@@ -1,0 +1,18 @@
+# Environment for the cugmec Python tools.
+#   mamba env create -f scripts/python/environment.yml
+#   mamba run -n cugmec pip install -e scripts/python
+#   mamba run -n cugmec pip install -e /path/to/pyCOCOS            # from-geqdsk (default method)
+#   mamba run -n cugmec pip install -e "scripts/python[desc]"      # DESC: from-desc, from-geqdsk --method desc
+# Building cuGMEC itself in the same environment (as TCV runs on a workstation do) also needs, from conda-forge:
+#   cuda-nvcc-impl, cuda-cudart-dev, libcufft-dev, libcusparse-dev, nccl and libcudss-dev=0.8.0.10
+#   (with DESC installed, jaxlib already brings nvcc tools, cuFFT, cuSPARSE and NCCL), plus a system MPI.
+name: cugmec
+channels:
+  - conda-forge
+dependencies:
+  - python=3.12
+  - numpy
+  - scipy
+  - h5py
+  - pytest
+  - pip
