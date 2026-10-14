@@ -1,0 +1,4 @@
+/* wider content column for equations and tables */
+.wy-nav-content { max-width: 1000px; }
+.math { overflow-x: auto; }
+table.docutils td, table.docutils th { white-space: normal; }

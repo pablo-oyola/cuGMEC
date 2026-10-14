@@ -102,7 +102,7 @@ Before building, make sure the environment variables for CUDA, NCCL, cuDSS, and 
 
 After a successful build, the `cuGMEC` executable will be generated in the project root directory.
 
-To keep several cases side by side, give each one a directory with its own `cuGMEC_param.h` and build with `make CASE=<directory>`. The executable is written to `<directory>/cuGMEC`. The text of the parameter file is compiled in, and every run writes it to `outputDir/final/cuGMEC_param.h`. `cugmec case` in [scripts/python](../../scripts/python/README.md) creates such directories.
+To keep several cases side by side, give each one a directory with its own `cuGMEC_param.h` and build with `make CASE=<directory>`. The executable is written to `<directory>/cuGMEC`. The text of the parameter file is compiled in, and every run writes it to `outputDir/final/cuGMEC_param.h`. `cugmec case` in `scripts/python` ([Python tools](../guide/python.md)) creates such directories.
 
 Common GPU architecture examples:
 

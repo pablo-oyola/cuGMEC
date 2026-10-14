@@ -521,6 +521,17 @@ For example, an ITER steady-state full-torus case up to toroidal mode number 36 
 
 ---
 
+## 📚 Documentation
+
+The documentation in [docs/](docs/) covers the physics model and the numerical methods as implemented, the parameters, the build environment, the Python tools, the diagnostics, and the ITPA TAE benchmark. It is a Sphinx project for Read the Docs (`.readthedocs.yaml`); to build it locally:
+
+```bash
+pip install -r docs/requirements.txt
+sphinx-build -b html docs docs/_build/html
+```
+
+---
+
 ## 💻 How to Use
 
 A typical cuGMEC workflow is:
