@@ -21,6 +21,26 @@
 
 /*----------------------------------------PIC Kernels-----------------------------------------*/
 
+// Accumulate one marker reset at a radial boundary into the losses (LossVar, cuGMEC_model.h).
+template <typename picReal>
+__device__ __forceinline__ void PICRecordLoss(double* __restrict__ loss, picReal x0, picReal w, picReal p, picReal E,
+                                              picReal partConst) {
+    if (loss == nullptr)
+        return;
+    const double dw = double(w) * partConst, dp = double(p) * partConst;
+    if (x0 >= (xbeg + xend) / 2) {
+        atomicAdd(&loss[LOSS_OUT_N], 1.0);
+        atomicAdd(&loss[LOSS_OUT_W], dw);
+        atomicAdd(&loss[LOSS_OUT_WE], dw * E);
+        atomicAdd(&loss[LOSS_OUT_P], dp);
+        atomicAdd(&loss[LOSS_OUT_PE], dp * E);
+    } else {
+        atomicAdd(&loss[LOSS_IN_N], 1.0);
+        atomicAdd(&loss[LOSS_IN_WE], dw * E);
+        atomicAdd(&loss[LOSS_IN_PE], dp * E);
+    }
+}
+
 __global__ void PICInitSortIds(int* __restrict__ sort_ids) {
 
     int picId = blockIdx.x * blockDim.x + threadIdx.x;
@@ -156,7 +176,8 @@ template <int ratioDt, picType particle, disType distribution, typename nonlinea
           typename mhdReal, typename picReal>
 __global__ void DriftAlignedRK4(picReal* __restrict__ pic1d, picReal* __restrict__ pic2d, picReal* __restrict__ pic3d,
                                 int* __restrict__ pic_keys_in, picReal* __restrict__ pic_values_in,
-                                mhdReal* __restrict__ dP_mid, mhdReal* __restrict__ dN_mid) {
+                                mhdReal* __restrict__ dP_mid, mhdReal* __restrict__ dN_mid,
+                                double* __restrict__ loss = nullptr) {
 
     int illegal;
     int i, j, k;
@@ -502,6 +523,7 @@ __global__ void DriftAlignedRK4(picReal* __restrict__ pic1d, picReal* __restrict
         if (vec2[0] < xbeg || vec2[0] >= xend)
             illegal = 1;
         if (illegal) {
+            PICRecordLoss(loss, vec0[0], vec0[4], disP, E, partConst);
             for (int index = 0; index < 5; index++)
                 vec2[index] = vec0[index];
             vec2[1] = -vec0[1];
@@ -614,7 +636,8 @@ template <int ratioDt, int gyroNums, picType particle, disType distribution, typ
           typename mhdReal, typename picReal>
 __global__ void GyroAlignedRK4(picReal* __restrict__ pic1d, picReal* __restrict__ pic2d, picReal* __restrict__ pic3d,
                                int* __restrict__ pic_keys_in, picReal* __restrict__ pic_values_in,
-                               mhdReal* __restrict__ dP_mid, mhdReal* __restrict__ dN_mid) {
+                               mhdReal* __restrict__ dP_mid, mhdReal* __restrict__ dN_mid,
+                               double* __restrict__ loss = nullptr) {
 
     int illegal;
     int i, j, k;
@@ -1067,6 +1090,7 @@ __global__ void GyroAlignedRK4(picReal* __restrict__ pic1d, picReal* __restrict_
         if (vec2[0] < xbeg || vec2[0] >= xend)
             illegal = 1;
         if (illegal) {
+            PICRecordLoss(loss, vec0[0], vec0[4], disP, E, partConst);
             for (int index = 0; index < 5; index++)
                 vec2[index] = vec0[index];
             vec2[1] = -vec0[1];
@@ -1249,7 +1273,8 @@ template <int ratioDt, picType particle, disType distribution, typename nonlinea
           typename mhdReal, typename picReal>
 __global__ void DriftStraightRK4(picReal* __restrict__ pic1d, picReal* __restrict__ pic2d, picReal* __restrict__ pic3d,
                                  int* __restrict__ pic_keys_in, picReal* __restrict__ pic_values_in,
-                                 mhdReal* __restrict__ dP_mid, mhdReal* __restrict__ dN_mid) {
+                                 mhdReal* __restrict__ dP_mid, mhdReal* __restrict__ dN_mid,
+                                 double* __restrict__ loss = nullptr) {
 
     int illegal;
     int i, j, k;
@@ -1621,6 +1646,7 @@ __global__ void DriftStraightRK4(picReal* __restrict__ pic1d, picReal* __restric
         if (vec2[0] < xbeg || vec2[0] >= xend)
             illegal = 1;
         if (illegal) {
+            PICRecordLoss(loss, vec0[0], vec0[4], disP, E, partConst);
             for (int index = 0; index < 5; index++)
                 vec2[index] = vec0[index];
             vec2[1] = -vec0[1];
@@ -1738,7 +1764,8 @@ template <int ratioDt, int gyroNums, picType particle, disType distribution, typ
           typename mhdReal, typename picReal>
 __global__ void GyroStraightRK4(picReal* __restrict__ pic1d, picReal* __restrict__ pic2d, picReal* __restrict__ pic3d,
                                 int* __restrict__ pic_keys_in, picReal* __restrict__ pic_values_in,
-                                mhdReal* __restrict__ dP_mid, mhdReal* __restrict__ dN_mid) {
+                                mhdReal* __restrict__ dP_mid, mhdReal* __restrict__ dN_mid,
+                                double* __restrict__ loss = nullptr) {
 
     int illegal;
     int i, j, k;
@@ -2379,6 +2406,7 @@ __global__ void GyroStraightRK4(picReal* __restrict__ pic1d, picReal* __restrict
         if (vec2[0] < xbeg || vec2[0] >= xend)
             illegal = 1;
         if (illegal) {
+            PICRecordLoss(loss, vec0[0], vec0[4], disP, E, partConst);
             for (int index = 0; index < 5; index++)
                 vec2[index] = vec0[index];
             vec2[1] = -vec0[1];

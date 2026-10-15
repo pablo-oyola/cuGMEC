@@ -242,6 +242,7 @@ int main(int argc, char* argv[]) {
     REF(Maxwell); REF(Reynolds);
     REF(IonDensity);     REF(AlphaDensity);     REF(BeamDensity);
     REF(IonDiffusivity); REF(AlphaDiffusivity); REF(BeamDiffusivity);
+    REF(IonLoss);        REF(AlphaLoss);        REF(BeamLoss);
     REF(IonPhaseDeltaF); REF(AlphaPhaseDeltaF); REF(BeamPhaseDeltaF);
     REF(IonPitchDeltaF); REF(AlphaPitchDeltaF); REF(BeamPitchDeltaF);
     REF(IonPhasePower);  REF(AlphaPhasePower);  REF(BeamPhasePower);
@@ -615,6 +616,19 @@ int main(int argc, char* argv[]) {
         if (diagIdx % diagSteps != 0)
             return;
 
+        // losses: copy the running sums into their history
+        auto recordLoss = [&]<typename... Guards>(double** loss) {
+            if constexpr (allTrue<Guards...>) {
+                forEachDev([&](int i) {
+                    CUDACHECK(cudaMemcpyAsync(loss[i] + LOSS_K * (1 + (size_t)diagIdx / diagSteps), loss[i],
+                                              sizeof(double) * LOSS_K, cudaMemcpyDeviceToDevice, 0));
+                });
+            }
+        };
+        recordLoss.template operator()<ifIon>(IonLoss);
+        recordLoss.template operator()<ifAlpha>(AlphaLoss);
+        recordLoss.template operator()<ifBeam>(BeamLoss);
+
         if constexpr (std::is_same_v<ifDiagAmplitude, trueType>) {
             forEachDev([&](int i) {
                 if constexpr (std::is_same_v<mhdReal, double>) {
@@ -875,27 +889,31 @@ int main(int argc, char* argv[]) {
     };
 
     auto runPICRK4 = [&]<picType particle, disType distribution, typename... Guards>(
-                         int** keys_in, picReal** values_in, mhdReal** globalP, mhdReal** globalN) {
+                         int** keys_in, picReal** values_in, mhdReal** globalP, mhdReal** globalN, double** loss) {
         if constexpr (allTrue<Guards...>) {
             forEachDev([&](int i) {
                 if constexpr (NFP == 1) {
                     if constexpr (std::is_same_v<ifFLRPIC, trueType>)
                         GyroAlignedRK4<ratioDt, gyroNums, particle, distribution, ifNonlinearPIC, ifQNeutrality,
                                        mhdReal, picReal><<<PICGridSize, PICBlockSize, 0, 0>>>(
-                            pic1d[i], pic2d[i], pic3d[i], keys_in[i], values_in[i], globalP[i], globalN[i]);
+                            pic1d[i], pic2d[i], pic3d[i], keys_in[i], values_in[i], globalP[i], globalN[i],
+                            loss[i]);
                     else
                         DriftAlignedRK4<ratioDt, particle, distribution, ifNonlinearPIC, ifQNeutrality, mhdReal,
                                         picReal><<<PICGridSize, PICBlockSize, 0, 0>>>(
-                            pic1d[i], pic2d[i], pic3d[i], keys_in[i], values_in[i], globalP[i], globalN[i]);
+                            pic1d[i], pic2d[i], pic3d[i], keys_in[i], values_in[i], globalP[i], globalN[i],
+                            loss[i]);
                 } else {
                     if constexpr (std::is_same_v<ifFLRPIC, trueType>)
                         GyroStraightRK4<ratioDt, gyroNums, particle, distribution, ifNonlinearPIC, ifQNeutrality,
                                         mhdReal, picReal><<<PICGridSize, PICBlockSize, 0, 0>>>(
-                            pic1d[i], pic2d[i], pic3d[i], keys_in[i], values_in[i], globalP[i], globalN[i]);
+                            pic1d[i], pic2d[i], pic3d[i], keys_in[i], values_in[i], globalP[i], globalN[i],
+                            loss[i]);
                     else
                         DriftStraightRK4<ratioDt, particle, distribution, ifNonlinearPIC, ifQNeutrality, mhdReal,
                                          picReal><<<PICGridSize, PICBlockSize, 0, 0>>>(
-                            pic1d[i], pic2d[i], pic3d[i], keys_in[i], values_in[i], globalP[i], globalN[i]);
+                            pic1d[i], pic2d[i], pic3d[i], keys_in[i], values_in[i], globalP[i], globalN[i],
+                            loss[i]);
                 }
             });
         }
@@ -1111,10 +1129,12 @@ int main(int argc, char* argv[]) {
 
             mhdToPIC.template operator()<ifPIC>();
 
-            runPICRK4.template operator()<Ion, IonType, ifIon>(Ion_keys_in, Ion_values_in, globalPi, globalNi);
+            runPICRK4.template operator()<Ion, IonType, ifIon>(Ion_keys_in, Ion_values_in, globalPi, globalNi,
+                                                               IonLoss);
             runPICRK4.template operator()<Alpha, AlphaType, ifAlpha>(Alpha_keys_in, Alpha_values_in, globalPa,
-                                                                     globalNa);
-            runPICRK4.template operator()<Beam, BeamType, ifBeam>(Beam_keys_in, Beam_values_in, globalPb, globalNb);
+                                                                     globalNa, AlphaLoss);
+            runPICRK4.template operator()<Beam, BeamType, ifBeam>(Beam_keys_in, Beam_values_in, globalPb, globalNb,
+                                                                  BeamLoss);
 
             mergePICBuffers.template operator()<ifIon>(globalPi);
             mergePICBuffers.template operator()<ifAlpha>(globalPa);

@@ -33,6 +33,9 @@ FORMAT_VERSION = 1
 SPECIES = ("Ion", "Alpha", "Beam")
 TOTALS = ("Phi", "A", "dNe", "dTe", "dP", "dPi", "dPa", "dPb")
 SNAPSHOTS = ("w", "A", "dNe", "dTe", "dP", "Phi", "dJpB", "dPe", "dPi", "dPa", "dPb", "dNi", "dNa", "dNb")
+# final/<Sp>Loss.bin columns, in the order of LossVar (src/cuGMEC_model.h): count, delta f content w and energy w E of
+# the markers reset at the outer boundary, their f0 content p and energy p E; count and energies at the inner boundary
+LOSS_COLUMNS = ("out_N", "out_w", "out_wE", "out_p", "out_pE", "in_N", "in_wE", "in_pE")
 CONTINUE_FIELDS = ("Phi", "A", "dNe", "dTe", "dP", "dPi", "dPa", "dPb", "dNi", "dNa", "dNb")
 MARKER_COMPONENTS = ("x", "y", "z", "vpara", "w", "p", "mu")
 ORBIT_COLUMNS = ("id", "orbit_type", "dtheta", "dphi_total", "dphi_vpara", "dT", "E", "Pphi", "Lambda")
@@ -192,6 +195,12 @@ def convert_outputs(output_dir, h5_path, param_path=None, restart=False):
             w.put(f"final/{s}Diffusivity.bin", f"diagnostics/{s}Diffusivity", mhd, (n_diag, n_modes, nx),
                   ["time_diag", "mode", "x"], f"radial diffusivity of {s} per toroidal mode",
                   enabled=p["ifDiagDiffusivity"] and enabled[s])
+            ds = w.put(f"final/{s}Loss.bin", f"diagnostics/{s}Loss", np.float64, (n_diag, len(LOSS_COLUMNS)),
+                       ["time_diag", "column"],
+                       f"{s} markers reset at the radial boundaries since the start of the run segment (cumulative); "
+                       "w and p carry partConst, E = m v_par^2/2 + mu B in code units", enabled=enabled[s])
+            if ds is not None:
+                ds.attrs["columns"] = ",".join(LOSS_COLUMNS)
 
         # ---- MHD fields
         for name in TOTALS:

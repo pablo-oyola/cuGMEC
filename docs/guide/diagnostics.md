@@ -23,7 +23,29 @@ field outputs.
 | `diagnostics/MaxwellDrive`, `ReynoldsDrive`, `ZonalDrive` | `ifDiagZFDrive` | zonal-flow drive by the Maxwell and Reynolds stresses, and the change of the zonal vorticity, per step |
 | `diagnostics/shearing` | `ifDiagShearing` | Hahm–Burrell $E\times B$ shearing rate $\langle(RB_p)^2/B\rangle\,\partial^2\Phi_{00}/\partial\psi_p^2$ from the $(n, m) = (0, 0)$ part of $\Phi$, in s⁻¹ |
 
+| `diagnostics/<Sp>Loss` | always | markers of each kinetic species reset at the radial boundaries, cumulative since the start of the run segment (below) |
+
 With `ifCheckNAN`, the run checks the fields for NaN and stops, writing its output, as soon as one appears.
+
+### Losses at the radial boundaries
+
+A marker whose step would leave $x \in [0, 1)$ is put back at its start-of-step position, mirrored $y \to -y$, with
+$w = 0$ ([](../physics/particles.md)). `diagnostics/<Sp>Loss` sums, over these resets, the columns listed in its
+attribute `columns`:
+
+| Column | Content |
+|---|---|
+| `out_N`, `in_N` | number of resets at the outer ($x = 1$) and the inner ($x = 0$) boundary |
+| `out_w` | $\delta f$ content $\sum w$ of the markers reset at the outer boundary |
+| `out_wE`, `in_wE` | their $\delta f$ energy $\sum w\,\mathcal E$ |
+| `out_p`, `out_pE`, `in_pE` | their $f_0$ content $\sum p$ and energy $\sum p\,\mathcal E$ |
+
+$\mathcal E = m v_\parallel^2/2 + \mu B$ in code units, and $w$ and $p$ include the species constant (`partConst`), as
+in the deposit. An energy column times $B_0^2/(2\mu_0)\,L_0^3\,\Delta x\,\Delta y\,\Delta z$, with
+$\Delta x = 1/(\texttt{gridNx}-1)$, $\Delta y = 2\pi/\texttt{gridNy}$ and $\Delta z = 2\pi/(\texttt{tubes}\,\texttt{gridNz})$,
+is in joules over $1/$`tubes` of the torus; its time derivative is the power through the boundary. The $\delta f$
+columns are the losses caused by the perturbation. The counts and the $f_0$ columns count reset events, so a marker on an
+unconfined orbit is counted again at each later step it spends at the boundary (with $w = 0$ after the first time).
 
 ## Fields
 

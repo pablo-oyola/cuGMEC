@@ -56,6 +56,15 @@ inline constexpr char compiledParam[] = "";
 
 using mhdComplex = std::conditional_t<std::is_same_v<mhdReal, double>, cufftDoubleComplex, cufftComplex>;
 
+/* Losses of a kinetic species since the start of the run segment, LOSS_K values: markers reset at the outer and at
+ * the inner radial boundary (illegal in the push kernels), with their delta f content w, its energy w E, and the f0
+ * content p and its energy p E, E = m v_par^2 / 2 + mu B at the last RK4 stage. w and p carry partConst, as in the
+ * deposit: an energy sum times B0^2/(2 mu0) L0^3 dx dy dz, with dx = 1/(gridNx - 1), dy = 2 pi/gridNy and
+ * dz = 2 pi/(tubes gridNz), is in joules over 1/tubes of the torus. The counts and the f0 sums count reset events: a
+ * marker that stays at the boundary is reset again at later steps (with w = 0 after the first time).
+ * d_<Sp>Loss holds the running sums in its first LOSS_K values, then a copy of them at every diagnostic step. */
+enum LossVar { LOSS_OUT_N = 0, LOSS_OUT_W, LOSS_OUT_WE, LOSS_OUT_P, LOSS_OUT_PE, LOSS_IN_N, LOSS_IN_WE, LOSS_IN_PE, LOSS_K };
+
 template <int ratioDt, picType particle, typename orbitReal>
 __global__ void PICDiagOrbit(orbitReal* __restrict__ pic1d, orbitReal* __restrict__ pic2d,
                              orbitReal* __restrict__ phaseSpaceMapping);
@@ -587,6 +596,7 @@ class HybridModel {
 	std::vector<mhdReal> h_MaxwellDrive; std::vector<mhdReal> h_ReynoldsDrive; std::vector<mhdReal> h_dwdtTotal;
 	std::vector<mhdReal> h_IonDensity;   std::vector<mhdReal> h_AlphaDensity;   std::vector<mhdReal> h_BeamDensity;
 	std::vector<mhdReal> h_IonDiffusivity; std::vector<mhdReal> h_AlphaDiffusivity; std::vector<mhdReal> h_BeamDiffusivity;
+	std::vector<double> h_IonLoss; std::vector<double> h_AlphaLoss; std::vector<double> h_BeamLoss;
 
 	mhdReal** d_amplitude; mhdReal** d_frequency; mhdReal** d_shearing;
 	mhdReal** d_modeReal;  mhdReal** d_modeImag;
@@ -595,6 +605,7 @@ class HybridModel {
 	mhdReal** d_Maxwell;      mhdReal** d_Reynolds;
 	mhdReal** d_IonDensity;   mhdReal** d_AlphaDensity;   mhdReal** d_BeamDensity;
 	mhdReal** d_IonDiffusivity; mhdReal** d_AlphaDiffusivity; mhdReal** d_BeamDiffusivity;
+	double** d_IonLoss; double** d_AlphaLoss; double** d_BeamLoss;
 
 	int** d_NANFlag;
 
@@ -1150,6 +1161,9 @@ class HybridModel {
         h_IonDiffusivity.resize(diagLenN);
         h_AlphaDiffusivity.resize(diagLenN);
         h_BeamDiffusivity.resize(diagLenN);
+        h_IonLoss.resize((size_t)(totalSteps / diagSteps + 1) * LOSS_K);
+        h_AlphaLoss.resize(h_IonLoss.size());
+        h_BeamLoss.resize(h_IonLoss.size());
 
         /*------------------------------------Output Totals on CPU------------------------------------*/
 
@@ -1440,6 +1454,14 @@ class HybridModel {
             if (ifBeam)
                 DeviceAllocator.allocateDeviceArrays(localId, devNums, h_BeamDiffusivity.size(), d_BeamDiffusivity);
         }
+
+        // losses: running sums, then their history (always on, see LossVar)
+        if (ifIon)
+            DeviceAllocator.allocateDeviceArrays(localId, devNums, LOSS_K + h_IonLoss.size(), d_IonLoss);
+        if (ifAlpha)
+            DeviceAllocator.allocateDeviceArrays(localId, devNums, LOSS_K + h_AlphaLoss.size(), d_AlphaLoss);
+        if (ifBeam)
+            DeviceAllocator.allocateDeviceArrays(localId, devNums, LOSS_K + h_BeamLoss.size(), d_BeamLoss);
 
         DeviceAllocator.allocateDeviceArrays(localId, devNums, 1, d_NANFlag);
 
@@ -1739,6 +1761,13 @@ class HybridModel {
             if (ifBeam)
                 DeviceAllocator.releaseDeviceArrays(localId, devNums, d_BeamDiffusivity);
         }
+
+        if (ifIon)
+            DeviceAllocator.releaseDeviceArrays(localId, devNums, d_IonLoss);
+        if (ifAlpha)
+            DeviceAllocator.releaseDeviceArrays(localId, devNums, d_AlphaLoss);
+        if (ifBeam)
+            DeviceAllocator.releaseDeviceArrays(localId, devNums, d_BeamLoss);
 
         DeviceAllocator.releaseDeviceArrays(localId, devNums, d_NANFlag);
 
@@ -2102,6 +2131,27 @@ class HybridModel {
                 reduceField(h_BeamDiffusivity, d_BeamDiffusivity);
         }
 
+        // losses: the history after the running sums, summed over GPUs and ranks
+        auto reduceLoss = [&](std::vector<double>& hostBuf, double** devBuf) {
+            std::vector<double> localSum(hostBuf.size(), 0);
+            std::vector<double> perDev(hostBuf.size());
+            for (int i = 0; i < devNums; i++) {
+                CUDACHECK(cudaSetDevice(localId * devNums + i));
+                CUDACHECK(cudaMemcpy(perDev.data(), devBuf[i] + LOSS_K, sizeof(double) * hostBuf.size(),
+                                     cudaMemcpyDeviceToHost));
+                for (size_t k = 0; k < hostBuf.size(); k++)
+                    localSum[k] += perDev[k];
+            }
+            MPICHECK(MPI_Reduce(localSum.data(), hostBuf.data(), hostBuf.size(), MPI_DOUBLE, MPI_SUM, 0,
+                                MPI_COMM_WORLD));
+        };
+        if (ifIon)
+            reduceLoss(h_IonLoss, d_IonLoss);
+        if (ifAlpha)
+            reduceLoss(h_AlphaLoss, d_AlphaLoss);
+        if (ifBeam)
+            reduceLoss(h_BeamLoss, d_BeamLoss);
+
         if constexpr (std::is_same_v<ifOutputPhaseSpaceDeltaF, trueType>) {
             if (ifIon)
                 reduceField(h_IonPhaseDeltaF, d_IonPhaseDeltaF);
@@ -2361,6 +2411,12 @@ class HybridModel {
                     writeBin(finalDir + "/BeamDiffusivity.bin", h_BeamDiffusivity.data(),
                              sizeof(mhdReal) * h_BeamDiffusivity.size());
             }
+            if (ifIon)
+                writeBin(finalDir + "/IonLoss.bin", h_IonLoss.data(), sizeof(double) * h_IonLoss.size());
+            if (ifAlpha)
+                writeBin(finalDir + "/AlphaLoss.bin", h_AlphaLoss.data(), sizeof(double) * h_AlphaLoss.size());
+            if (ifBeam)
+                writeBin(finalDir + "/BeamLoss.bin", h_BeamLoss.data(), sizeof(double) * h_BeamLoss.size());
 
             if (ifOutputPhi)
                 writeBin(finalDir + "/totalPhi.bin", h_totalPhi.data(), sizeof(mhdReal) * h_totalPhi.size());
